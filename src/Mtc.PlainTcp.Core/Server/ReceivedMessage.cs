@@ -1,10 +1,14 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace Mtc.PlainTcp.Core.Server
+﻿namespace Mtc.PlainTcp.Core.Server
 {
     public class ReceivedMessage
     {
+        public ReceivedMessage(ConnectedClient client, byte[] payload)
+        {
+            Client = client;
+            Payload = payload;
+        }
+
+        public ConnectedClient Client { get; }
+        public byte[] Payload { get; }
     }
 }

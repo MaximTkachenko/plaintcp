@@ -10,8 +10,10 @@ namespace Mtc.PlainTcp.Core.Server
         public ConnectedClient(Socket socket)
         {
             Socket = socket;
+            Id = Guid.NewGuid();
         }
 
         public Socket Socket { get; }
+        public Guid Id { get; }
     }
 }

@@ -13,7 +13,7 @@ namespace DemoServer
 
             var server = new PlainTcpServer(IPAddress.Loopback, 5555);
             server.ClientConnected += cl => Console.WriteLine($"connected client: {cl.Id}, {cl.Socket.LocalEndPoint}");
-            server.ClientDisconnected += cl => Console.WriteLine($"disconnected client: {cl.Id}, {cl.Socket.LocalEndPoint}");
+            server.Error += msg => Console.WriteLine($"error: {msg}");
             server.MessageReceived += msg =>
             {
                 var parsedMsg = Encoding.UTF8.GetString(msg.Payload);

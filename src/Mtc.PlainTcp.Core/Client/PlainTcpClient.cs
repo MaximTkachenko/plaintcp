@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -80,11 +81,14 @@ namespace Mtc.PlainTcp.Core.Client
 
         public event Action<byte[]> MessageReceived;
 
+        public event Action<string> Error;
+
         private void SocketOperationCompleted(object sender, SocketAsyncEventArgs args)
         {
             if (args.SocketError != SocketError.Success)
             {
-                //todo disconnect socket
+                HandleNetworkError();
+                return;
             }
 
             switch (args.LastOperation)
@@ -100,6 +104,13 @@ namespace Mtc.PlainTcp.Core.Client
 
         private void ReceiveCompleted(Socket socket, SocketAsyncEventArgs args)
         {
+            int bytesRead = args.BytesTransferred;
+            if (bytesRead == 0)
+            {
+                HandleNetworkError();
+                return;
+            }
+
             _receiveQueue.Enqueue(args);
             var newArgs = _receiveArgs.Get();
             if (!socket.ReceiveAsync(newArgs))
@@ -187,6 +198,21 @@ namespace Mtc.PlainTcp.Core.Client
         private void CompleteMessage(byte[] payload)
         {
             MessageReceived?.Invoke(payload);
+        }
+
+        private void HandleNetworkError()
+        {
+            try
+            {
+                Stop();
+            }
+            catch
+            {
+                //just skip it
+            }
+
+            //todo clear queue
+            Error?.Invoke("can't connect to the server");
         }
     }
 }

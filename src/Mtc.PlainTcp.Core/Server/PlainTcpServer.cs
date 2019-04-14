@@ -64,7 +64,15 @@ namespace Mtc.PlainTcp.Core.Server
 
         public void Stop()
         {
-            _listener.Shutdown(SocketShutdown.Both);
+            try
+            {
+                _listener.Shutdown(SocketShutdown.Both);
+            }
+            catch
+            {
+                //just skip it
+            }
+
             _listener.Close();
         }
 
@@ -102,7 +110,7 @@ namespace Mtc.PlainTcp.Core.Server
 
         public event Action<ConnectedClient> ClientConnected;
 
-        public event Action<ConnectedClient> ClientDisconnected;
+        public event Action<string> Error;
 
         public event Action<ReceivedMessage> MessageReceived;
 
@@ -110,7 +118,8 @@ namespace Mtc.PlainTcp.Core.Server
         {
             if (args.SocketError != SocketError.Success)
             {
-                //todo disconnect socket
+                HandleNetworkError((Socket)sender);
+                return;
             }
 
             switch (args.LastOperation)
@@ -153,6 +162,13 @@ namespace Mtc.PlainTcp.Core.Server
 
         private void ReceiveCompleted(Socket socket, SocketAsyncEventArgs args)
         {
+            int bytesRead = args.BytesTransferred;
+            if (bytesRead == 0)
+            {
+                HandleNetworkError(socket);
+                return;
+            }
+
             _receiveQueue[socket].Enqueue(args);
             var newArgs = _receiveArgs.Get();
             if (!socket.ReceiveAsync(newArgs))
@@ -245,6 +261,15 @@ namespace Mtc.PlainTcp.Core.Server
         private void CompleteMessage(Socket socket, byte[] payload)
         {
             MessageReceived?.Invoke(new ReceivedMessage(_clients[socket], payload));
+        }
+
+        private void HandleNetworkError(Socket socket)
+        {
+            socket.Shutdown(SocketShutdown.Both);
+            socket.Close();
+            //todo clear queue
+            _clients.TryRemove(socket, out var client);
+            Error?.Invoke($"client {client.Id} disconnected");
         }
     }
 }

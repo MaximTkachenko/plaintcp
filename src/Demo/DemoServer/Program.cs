@@ -9,7 +9,7 @@ namespace DemoServer
     {
         static void Main()
         {
-            Console.WriteLine("input 'exit' to close server or other string to broadcast");
+            Console.WriteLine("input 'q' to close server or other string to broadcast");
 
             var server = new PlainTcpServer(IPAddress.Loopback, 5555);
             server.ClientConnected += cl => Console.WriteLine($"connected client: {cl.Id}, {cl.Socket.LocalEndPoint}");
@@ -17,14 +17,14 @@ namespace DemoServer
             server.MessageReceived += msg =>
             {
                 var parsedMsg = Encoding.UTF8.GetString(msg.Payload);
-                Console.WriteLine($"new message from {msg.Client.Id}, {msg.Client.Socket.LocalEndPoint}, content: {parsedMsg}");
+                Console.WriteLine($"new message from {msg.Client.Socket.RemoteEndPoint}, content: {parsedMsg}");
                 server.Send(msg.Client, Encoding.UTF8.GetBytes($"ECHO: {parsedMsg}"));
             };
             server.Start();
             while (true)
             {
                 var input = Console.ReadLine();
-                if (input == "exit")
+                if (input == "q")
                 {
                     Console.WriteLine("shutting down the server...");
                     break;

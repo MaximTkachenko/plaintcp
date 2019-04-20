@@ -61,7 +61,15 @@ namespace Mtc.PlainTcp.Core.Client
         public void Stop()
         {
             _working = false;
-            _client.Shutdown(SocketShutdown.Both);
+            try
+            {
+                _client.Shutdown(SocketShutdown.Both);
+            }
+            catch (ObjectDisposedException)
+            {
+                //just ignore
+            }
+
             _client.Close();
         }
 

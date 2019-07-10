@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Mtc.PlainTcp.Core.Common
+namespace Mtk.PlainTcp.Core.Common
 {
     public class Pool<T>
     {

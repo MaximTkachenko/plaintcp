@@ -1,35 +1,31 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using Mtc.PlainTcp.Core.Common;
+using System.Text;
+using System.Threading.Tasks;
+using Mtk.PlainTcp.Core.Common;
 
-namespace Mtc.PlainTcp.Core.Server
+namespace Mtk.PlainTcp.Core.Client
 {
-    public class PlainTcpServer : IPlainTcpServer
+    public class PlainTcpClient : IPlainTcpClient
     {
-        private volatile bool _listening;
+        private readonly Socket _client;
+        private volatile bool _working;
 
-        private const int ConnectionsLimit = 100;
         private const int BufferSize = 4096;
         private const int SizeHeaderLength = sizeof(int);
 
-        private readonly Socket _listener;
-
-        private readonly SocketAsyncEventArgs _acceptArgs;
         private readonly Pool<SocketAsyncEventArgs> _receiveArgs;
         private readonly Pool<SocketAsyncEventArgs> _sendArgs;
 
-        private readonly ConcurrentDictionary<Socket, ConcurrentQueue<SocketAsyncEventArgs>> _receiveQueue;
-        private readonly ConcurrentDictionary<Socket, ConnectedClient> _clients;
+        private readonly ConcurrentQueue<SocketAsyncEventArgs> _receiveQueue;
 
-        public PlainTcpServer(IPAddress ipAddress, int port)
+        public PlainTcpClient()
         {
-            _listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            _listener.Bind(new IPEndPoint(ipAddress, port));
-
-            _acceptArgs = new SocketAsyncEventArgs();
-            _acceptArgs.Completed += SocketOperationCompleted;
+            _client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
             _receiveArgs = new Pool<SocketAsyncEventArgs>(10, () =>
             {
@@ -45,56 +41,39 @@ namespace Mtc.PlainTcp.Core.Server
                 return args;
             });
 
-            _receiveQueue = new ConcurrentDictionary<Socket, ConcurrentQueue<SocketAsyncEventArgs>>();
-            _clients = new ConcurrentDictionary<Socket, ConnectedClient>();
+            _receiveQueue = new ConcurrentQueue<SocketAsyncEventArgs>();
         }
 
-        public void Start()
+        public void Start(IPAddress ipAddress, int port)
         {
-            _listening = true;
+            _client.Connect(ipAddress, port);
+            _working = true;
 
-            _listener.Listen(ConnectionsLimit);
-            if (!_listener.AcceptAsync(_acceptArgs))
+            var args = _receiveArgs.Get();
+            if (!_client.ReceiveAsync(args))
             {
-                SocketOperationCompleted(_listener, _acceptArgs);
+                SocketOperationCompleted(_client, args);
             }
 
-            //start keep alive
+            Task.Run(() => ProcessServerMessages(_client));
         }
 
         public void Stop()
         {
+            _working = false;
             try
             {
-                _listener.Shutdown(SocketShutdown.Both);
+                _client.Shutdown(SocketShutdown.Both);
             }
-            catch
+            catch (ObjectDisposedException)
             {
-                //just skip it
+                //just ignore
             }
 
-            _listener.Close();
+            _client.Close();
         }
 
-        public void Broadcast(byte[] message)
-        {
-            var msg = new byte[message.Length + SizeHeaderLength];
-            Buffer.BlockCopy(BitConverter.GetBytes(message.Length), 0, msg, 0, SizeHeaderLength);
-            Buffer.BlockCopy(message, 0, msg, SizeHeaderLength, message.Length);
-
-            var clients = _clients.Values;
-            foreach (var client in clients)
-            {
-                var args = _sendArgs.Get();
-                args.SetBuffer(msg, 0, msg.Length);
-                if (!client.Socket.SendAsync(args))
-                {
-                    SocketOperationCompleted(client.Socket, args);
-                }
-            }
-        }
-
-        public void Send(ConnectedClient client, byte[] message)
+        public void Send(byte[] message)
         {
             var msg = new byte[message.Length + SizeHeaderLength];
             Buffer.BlockCopy(BitConverter.GetBytes(message.Length), 0, msg, 0, SizeHeaderLength);
@@ -102,31 +81,26 @@ namespace Mtc.PlainTcp.Core.Server
 
             var args = _sendArgs.Get();
             args.SetBuffer(msg, 0, msg.Length);
-            if (!client.Socket.SendAsync(args))
+            if (!_client.SendAsync(args))
             {
-                SocketOperationCompleted(client.Socket, args);
+                SocketOperationCompleted(_client, args);
             }
         }
 
-        public event Action<ConnectedClient> ClientConnected;
+        public event Action<byte[]> MessageReceived;
 
         public event Action<string> Error;
-
-        public event Action<ReceivedMessage> MessageReceived;
 
         private void SocketOperationCompleted(object sender, SocketAsyncEventArgs args)
         {
             if (args.SocketError != SocketError.Success)
             {
-                HandleNetworkError((Socket)sender);
+                HandleNetworkError();
                 return;
             }
 
             switch (args.LastOperation)
             {
-                case SocketAsyncOperation.Accept:
-                    AcceptCompleted((Socket)sender, args);
-                    break;
                 case SocketAsyncOperation.Receive:
                     ReceiveCompleted((Socket)sender, args);
                     break;
@@ -136,40 +110,16 @@ namespace Mtc.PlainTcp.Core.Server
             }
         }
 
-        private void AcceptCompleted(Socket socket, SocketAsyncEventArgs args)
-        {
-            var clientSocket = args.AcceptSocket;
-            var client = new ConnectedClient(clientSocket);
-            _clients.TryAdd(clientSocket, client);
-            _receiveQueue.TryAdd(clientSocket, new ConcurrentQueue<SocketAsyncEventArgs>());
-
-            ClientConnected?.Invoke(client);
-
-            _acceptArgs.AcceptSocket = null;
-            if (!_listener.AcceptAsync(_acceptArgs))
-            {
-                SocketOperationCompleted(_listener, _acceptArgs);
-            }
-
-            var receiveArgs = _receiveArgs.Get();
-            if (!clientSocket.ReceiveAsync(receiveArgs))
-            {
-                SocketOperationCompleted(clientSocket, receiveArgs);
-            }
-
-            ProcessClientMessages(clientSocket);
-        }
-
         private void ReceiveCompleted(Socket socket, SocketAsyncEventArgs args)
         {
             int bytesRead = args.BytesTransferred;
             if (bytesRead == 0)
             {
-                HandleNetworkError(socket);
+                HandleNetworkError();
                 return;
             }
 
-            _receiveQueue[socket].Enqueue(args);
+            _receiveQueue.Enqueue(args);
             var newArgs = _receiveArgs.Get();
             if (!socket.ReceiveAsync(newArgs))
             {
@@ -182,22 +132,17 @@ namespace Mtc.PlainTcp.Core.Server
             _sendArgs.Return(args);
         }
 
-        private void ProcessClientMessages(Socket socket)
+        private void ProcessServerMessages(Socket socket)
         {
-            if (!_receiveQueue.TryGetValue(socket, out var receiveArgs))
-            {
-                return;
-            }
-
             var headerOffset = 0; //current header read
             var msgOffset = 0; //current message read
             var msgLength = 0; //payload size
             var rawHeader = new byte[SizeHeaderLength];
             byte[] rawMessage = null;
 
-            while (_listening)
+            while (_working)
             {
-                if (!receiveArgs.TryDequeue(out var args))
+                if (!_receiveQueue.TryDequeue(out var args))
                 {
                     continue;
                 }
@@ -245,7 +190,7 @@ namespace Mtc.PlainTcp.Core.Server
 
                     if (msgOffset == msgLength)
                     {
-                        CompleteMessage(socket, rawMessage);
+                        CompleteMessage(rawMessage);
 
                         headerOffset = 0;
                         msgOffset = 0;
@@ -258,18 +203,24 @@ namespace Mtc.PlainTcp.Core.Server
             }
         }
 
-        private void CompleteMessage(Socket socket, byte[] payload)
+        private void CompleteMessage(byte[] payload)
         {
-            MessageReceived?.Invoke(new ReceivedMessage(_clients[socket], payload));
+            MessageReceived?.Invoke(payload);
         }
 
-        private void HandleNetworkError(Socket socket)
+        private void HandleNetworkError()
         {
-            socket.Shutdown(SocketShutdown.Both);
-            socket.Close();
+            try
+            {
+                Stop();
+            }
+            catch
+            {
+                //just skip it
+            }
+
             //todo clear queue
-            _clients.TryRemove(socket, out var client);
-            Error?.Invoke($"client {client.Id} disconnected");
+            Error?.Invoke("can't connect to the server");
         }
     }
 }

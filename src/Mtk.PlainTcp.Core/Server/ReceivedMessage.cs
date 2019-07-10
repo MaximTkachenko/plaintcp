@@ -1,4 +1,4 @@
-﻿namespace Mtc.PlainTcp.Core.Server
+﻿namespace Mtk.PlainTcp.Core.Server
 {
     public class ReceivedMessage
     {

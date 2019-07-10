@@ -6,7 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Mtc.PlainTcp.Core\Mtc.PlainTcp.Core.csproj" />
+    <ProjectReference Include="..\..\Mtk.PlainTcp.Core\Mtk.PlainTcp.Core.csproj" />
   </ItemGroup>
 
 </Project>

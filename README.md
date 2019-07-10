@@ -6,3 +6,5 @@ plaintcp
 - [ ] memory pooling using ArrayPool
 - [ ] asp.net core middleware
 - [ ] performance and allocation tests
+- [ ] profiling
+- [ ] implement something useful on top of plaintcp

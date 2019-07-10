@@ -4,4 +4,4 @@ plaintcp
 - [ ] add keepalive
 - [ ] add SendAndReceiveAsync
 - [ ] memory pooling
-- [ ] asp.nte core middleware using IHostingService
+- [ ] asp.net core middleware using IHostingService
